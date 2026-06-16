@@ -3,7 +3,7 @@
 #Code developed by Hao Yu & Arthur Cooper, Research Associates, Department of Fisheries and Wildlife, Michigan State University
 
 #Set working directory and remove all objects from the workspace
-setwd('../working_directory')
+setwd("K:/GIS/MSCGP/Data/Raw_Data")
 rm(list = ls(all = TRUE))
 
 #Load and attach necessary libraries
@@ -13,7 +13,8 @@ library(labdsv) #'matrify' function to flip species data table orientation
 ####################################
 #Import fish data and predictor data
 ####################################
-fish<-read.csv("Fish_data.csv", header = T) #input fish data table
+fish <- read.csv("Fish_data.csv", header = T) #input fish data table
+fish <- read.csv('fluvial_fish_brt_model_artifacts_v2_0/brt_model_inputs/brt_fish_data.csv')
 fish_name_itis<-fish[,c(6:8)] #subset table that includes fish species ITIS (Integrated Taxonomic Information System) code, common name, and scientific name
 
 #Separate unrestricted data (no sharing restriction/used in BRT model development) from restricted data (cannot be publicly shared/not used in BRT model development)
@@ -21,7 +22,7 @@ fish_unrestricted<-fish[is.na(fish$restricted),] #unrestricted fish data
 fish_restricted<-fish[!is.na(fish$restricted),] #restricted fish data
 #Input predictor variables table for fluvial stream reaches 
 predictors_fluvial<-read.csv("Predictors.csv",header=T) 
-
+predictors_fluvial<-read.csv("USGS_data/nhdplusv2_agap_landscape_characterstics_20210129.csv")
 #######################################
 #Import USGS NAS native HUC8 range data
 #######################################
@@ -31,7 +32,7 @@ HUC8<-read.csv("HUC8_ranges.csv",header=T) #input species HUC8 range data table
 HUC8<-HUC8[,-4] #remove unneeded field
 #Restrict HUC8 range data to 'native' HUC8s only (HUC8s with 'introduced' status representing non-native range are removed)
 HUC8_native<-HUC8[HUC8$OriginStatus=="Native",]
-
+HUC8_native <- read.csv("fluvial_fish_brt_model_artifacts_v2_0/brt_model_inputs/brt_fish_nas_ranges.csv")
 ##########################################################
 #Import HUC8s for NHDPlusV2 and Fish List
 #Combine HUC locations and predictors
@@ -45,13 +46,15 @@ spatial_HUC8<-spatial[,c(1,16)]
 predictors_fluvial_HUC8<-merge(predictors_fluvial,spatial_HUC8,by.x="comid",by.y="COMID")
 
 #Create fish list and associated HUC8 native ranges
-fish_list<-read.csv("Fish_list.csv",header=T)
-HUC8_native<-HUC8_native[HUC8_native$Scientific_name %in% fish_list$Scientific_name,]
+
+fish_list <- read.csv("species_list_v2_0.csv")
+fish_list<-read.csv("USGS_data/fish_list.csv",header=T)
+HUC8_native<-HUC8_native[HUC8_native$scientific_name %in% fish_list$scientific_name,]
 
 HUC8_native<-HUC8_native[,1:2]
 
 fish_name<-unique(fish_name_itis[fish_name_itis$scientific_name %in% HUC8_native$Scientific_name,])
-
+fish_name <- c('Salvelinus fontinalis', 'Anguilla rostrata')
 ############################################
 #Develop Boosted Regression Tree (BRT) model
 ############################################

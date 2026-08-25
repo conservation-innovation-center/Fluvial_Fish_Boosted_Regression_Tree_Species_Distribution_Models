@@ -14,7 +14,7 @@ setwd("K:/GIS/AFWA_BrookTrout/Data/Raw_Data")
 
 # 1. import model
 BR <- readRDS("K:/GIS/AFWA_BrookTrout/Data/Raw_Data/AGAP_BT_BRT.rds")
-BR_CIC <- readRDS("results/162003.rds")
+#BR_CIC <- readRDS("results/162003.rds")
 
 # check which inputs are important
 summary(BR, plotit=FALSE) # out of the ones that we can easily control, most important is NB_nlcd11_41_43. That's comforting.
@@ -120,12 +120,41 @@ predictor_species  = predictors_fluvial %>%
 #bind rows of output dfs
 # do multiple covars at a time, have a column that has the covar name and one that has the covar value in addition to the other columns for comid, probabiliyt
 
+reach_sensitivity <- function(idx, covar, predictors, comid_df, model) {
+  # isolate stream reach from table, save comid & current conditions
+  reach = predictors[idx,]
+  current_cond = reach[[covar]]
+  comid = comid_df$comid[idx]
+  
+  # save duplicate rows of stream predictors, varying covar by 10% each time
+  sens_in = predictors[rep(idx,101),]
+  sens_in[[covar]] = seq(from = 0, to = 100, by = 1)
+  
+  # run predictions, save as data frame with covar value that's being incremented
+  predict_prob <- predict(model, sens_in, n.trees=model$gbm.call$best.trees,type="response")
+  pred_df <- as.data.frame(cbind(sens_in[[covar]], predict_prob))
+  names(pred_df)[1]<-covar
+  print(pred_df)
+  
+  # approximate loess function by fitting a 3rd degree polynomial equation
+  #fit_fn = lm(predict_prob ~ poly(covar, 3), data = pred_df)
+  fit_fn = lm(paste("predict_prob ~ poly(",covar, ", 3)"), data = pred_df)
+  coeff = coef(fit_fn)
+  print(fit_fn)
+  
+  return(list(df = pred_df, fn = fit_fn))
+}
+
+
+sens_test = reach_sensitivity(50, "NB_nlcd11b_41_43", predictor_species, predictors_fluvial, BR)
+sens_test$coefficients
 
 # pick out one stream to test sensitivity analysis on
 idx = 50
 #var = "N_nlcd11_11"
 test_reach = predictor_species[idx,]
 current_cond = test_reach$NB_nlcd11b_41_43
+current_cond
 
 # duplicate this stream 10x, varying NB_nlcd11_41_43 by 10% each time
 test_reach = predictor_species[rep(idx,101),]

@@ -16,28 +16,76 @@ library(labdsv)#'matrify' function to flip species data table orientation
 library(dplyr)# 'distinct' function to remove replicates 
 library(dismo)#'gbm.step' function to generate BRT models
 library(PresenceAbsence)#'presence.absence.accuracy' function to calculate model evaluation metrics
+library(arrow) # CW: used for reading in parquet file
 
 ####################################
 #Import fish data and predictir data
 ####################################
-fish<-read.csv("fish_all_clean_0820.csv", header = T)#input fish data table
+#fish<-read.csv("fish_all_clean_0820.csv", header = T)#input fish data table
 # CW: the '_clean' part of this filename has me concerned. guess we'll just use the fish data we have though.
 fish <- read.csv("BRT/fish_list_v2_0.csv",header=T)
 
-#Separate unrestriced data (no sharing restrication/used in BRT model development) from restricted data (cannot be publicly shared/not used in BRT model development)
-fish_unrestricted<-fish[is.na(fish$restricted),]#unrestricted fish data
-fish_restricted<-fish[!is.na(fish$restricted),]#restricted fish data
-fish_name_itis<-fish_unrestricted[,c(6:8)]#subset table that inclues fish species ITIS (Integrated Taxonomic Information System) code, common name, and scientific name
+#Separate unrestricted data (no sharing restriction/used in BRT model development) from restricted data (cannot be publicly shared/not used in BRT model development)
+#CW: fish data that we're using is downloaded from ScienceBase, presumably only includes unrestricted data. skip the filtering stuff.
+#fish_unrestricted<-fish[is.na(fish$restricted),]#unrestricted fish data
+#fish_restricted<-fish[!is.na(fish$restricted),]#restricted fish data
+#fish_name_itis<-fish_unrestricted[,c(6:8)]#subset table that inclues fish species ITIS (Integrated Taxonomic Information System) code, common name, and scientific name
+fish_name_itis <- fish[,c(1:3)] # CW: chose these columns based on the comment above. column ordering in our file is apparently different from what Hao's using here
 
 #Input predictor variables table for fluvial stream reaches 
-predictors_fluvial<-read.csv("predictors_all_fluvial_0524_2022.csv",header=T)#predictor variables
+#predictors_fluvial<-read.csv("predictors_all_fluvial_0524_2022.csv",header=T)#predictor variables
+
+# CW: replaced the above with loading in landscape & dam metrics, joining tables together.
+predictors_landscape<-read_parquet("K:/GIS/AFWA_BrookTrout/Data/Raw_Data/nhdplusv2_agap_landscape_characterstics.parquet.gzip")
+#dam_metrics <- read_csv_arrow("dam_fragmentation_metrics_nhdplusv21.csv")
+dam_metrics <- read_csv_arrow("Dam_metrics/dam_fragmentation_metrics_nhdplusv21.csv")
+predictors_fluvial <- predictors_landscape %>%
+  merge(dam_metrics, by.x = "comid", by.y = "COMID")
 
 #########################################
 #link HUC8 ranges and predictor variables
 #########################################
-spatial_HUC8<-read.csv("nhdplusv2_comid_huc8_2022_spatial_filter_no_name.csv",header=T)#input species HUC8 range data table
-predictors_fluvial_HUC8<-merge(predictors_fluvial,spatial_HUC8,by.x="comid",by.y="COMID")#merge HUC8 range and predictor variables
+#spatial_HUC8<-read.csv("nhdplusv2_comid_huc8_2022_spatial_filter_no_name.csv",header=T)#input species HUC8 range data table
+
+#CW: hopefully this is the equivalent of whatever file Hao's reading in above
+spatial_HUC8 <- read.csv("BRT/fluvial_fish_brt_model_artifacts_v2_0/brt_model_inputs/brt_fish_nas_ranges.csv")%>%
+  mutate(HUC8_code = as.character(HUC8))%>%
+  mutate(
+    HUC8_code = replace_when(HUC8_code, nchar(HUC8_code) < 8 ~ paste0("0",HUC8_code))
+  )
+#CW: crap, this does not have COMID which is needed for the merge below. sigh. It does have HUC8 though. I guess this is where we need to relate HUC to reach to comid?
+# yes ok this is where we read in the table that Mike made. Need to redo this part I guess(?), except why is this step even needed?
+
+#CW: start by reading in the NHD flowlines I guess. We just need a table that has both reachcode and comid in it. then we can get huc8 from reachcode
+NHD_flowlines <- read.csv("C:/Users/cweinstein/Documents/Projects/AFWA_2026/AGAP_downloads_Jul2026/BRT/NHDPlusV21_NationalData_Seamless_Geodatabase_Lower48_07/NHDFlowline_Network_ExportTable.csv")
+
+#CW: based on the filename Hao uses for spatial_HUC8, I'm going to guess that this is supposed to have been filtered already. Let's try doing a rough filtering based on what Jared sent us
+# original number of rows: 2691339
+# Filtering steps: remove FTYPE of "Coastline" and "Pipeline"
+
+#TODO: actually, skip the filtering for now. if it turns out to be necessary, add it here
+
+# isolate just the COMID and REACHCODE. Use REACHCODE to identify HUC8, relating COMID to HUC8
+# when REACHCODE is < 14 digits long, add in leading zero that likely got truncated because HUC naming conventions are stupid
+HUC8_comid_df <- NHD_flowlines %>%
+  dplyr::select(COMID, REACHCODE) %>%
+  mutate(REACHCODE_char = as.character(REACHCODE)) %>%
+  mutate(
+    REACHCODE_char = replace_when(REACHCODE_char, nchar(REACHCODE_char) < 14 ~ paste0("0",REACHCODE_char))
+  ) %>%
+  mutate(HUC8 = substr(REACHCODE_char, 1, 8)) %>%
+  dplyr::select(COMID, HUC8) %>%
+  left_join(spatial_HUC8, by = c("HUC8" = "HUC8_code"))
+
+
+#predictors_fluvial_HUC8<-merge(predictors_fluvial,spatial_HUC8,by.x="comid",by.y="COMID")#merge HUC8 range and predictor variables
+predictors_fluvial_HUC8 <- merge(predictors_fluvial, HUC8_comid_df, by.x="comid", by.y="COMID") #CW: I think this is what we're trying to achieve, but I have questions about why we're doing it this way
+
+#yeah ok the above line failed because the resulting file is too big. That makes sense. Try subsetting to just safo first since that's the only species we care about?
+
 names(predictors_fluvial_HUC8)[24]<-c("HUC8")
+
+
 
 ##########################
 #Import native HUC8 ranges

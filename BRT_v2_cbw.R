@@ -16,7 +16,7 @@ library(labdsv)#'matrify' function to flip species data table orientation
 library(dplyr)# 'distinct' function to remove replicates 
 library(dismo)#'gbm.step' function to generate BRT models
 library(PresenceAbsence)#'presence.absence.accuracy' function to calculate model evaluation metrics
-library(arrow) # CW: used for reading in parquet file
+library(arrow) # CW: added for reading in parquet file
 
 ####################################
 #Import fish data and predictir data
@@ -77,11 +77,22 @@ HUC8_comid_df <- NHD_flowlines %>%
   dplyr::select(COMID, HUC8) %>%
   left_join(spatial_HUC8, by = c("HUC8" = "HUC8_code"))
 
+#TODO: look at duplicated rows for troubleshooting - dplyr duplicated function
+# run piping sequence line by line, look at intermediate outputs to find where things go amiss. possibly during the number-character conversion steps
+
+# CW: some debugging notes here:
+# nrow in NHD_flowlines: 2,691,339
+# number of unique comid values in NHD_flowlines: 2,691,339
+
+# CW: after doing the data piping above:
+# nrow in HUC8_comid_df: 66,803,144 ... that is way too many more
+# number of unique comid values in HUC8_comid_df: 2,691,339
 
 #predictors_fluvial_HUC8<-merge(predictors_fluvial,spatial_HUC8,by.x="comid",by.y="COMID")#merge HUC8 range and predictor variables
-predictors_fluvial_HUC8 <- merge(predictors_fluvial, HUC8_comid_df, by.x="comid", by.y="COMID") #CW: I think this is what we're trying to achieve, but I have questions about why we're doing it this way
+#predictors_fluvial_HUC8 <- merge(predictors_fluvial, HUC8_comid_df, by.x="comid", by.y="COMID") #CW: I think this is what we're trying to achieve, but I have questions about why we're doing it this way
 
 #yeah ok the above line failed because the resulting file is too big. That makes sense. Try subsetting to just safo first since that's the only species we care about?
+
 
 names(predictors_fluvial_HUC8)[24]<-c("HUC8")
 

@@ -59,8 +59,8 @@ set.seed(10)
 
 predictors_fluvial <- mutate(predictors_fluvial,
                              NB_nlcd11b_41_43 = NB_nlcd11b_41+ NB_nlcd11b_42+ NB_nlcd11b_43,
-                             N_nlcd11_90_95 = NB_nlcd11b_90+NB_nlcd11b_95,
-                             N_nlcd11_21_24 = NB_nlcd11b_21+ NB_nlcd11b_22+ NB_nlcd11b_23+ NB_nlcd11b_24,
+                             N_nlcd11_90_95 = N_nlcd11_90+N_nlcd11_95, #CW: changed this so it's using N_ instead of NB_ columns
+                             N_nlcd11_21_24 = N_nlcd11_21+ N_nlcd11_22+ N_nlcd11_23+ N_nlcd11_24, #CW: fixed this too
                              N_nlcd11_11c = N_nlcd11_11,
                              totww_mgalc = N_totww,
                              DM2D_Fishtail = DM2D
@@ -111,7 +111,7 @@ include <- c(
 # }
 
 predictor_species  = predictors_fluvial %>% 
-  select(include) #%>%
+  dplyr::select(all_of(include)) #%>%
   #slice_head(n=10)
 
 # starting from here - wrap in a function that inputs idx, outputs dataframe
@@ -134,26 +134,56 @@ reach_sensitivity <- function(idx, covar, predictors, comid_df, model) {
   predict_prob <- predict(model, sens_in, n.trees=model$gbm.call$best.trees,type="response")
   pred_df <- as.data.frame(cbind(sens_in[[covar]], predict_prob))
   names(pred_df)[1]<-covar
-  print(pred_df)
+  #print(pred_df)
   
   # approximate loess function by fitting a 3rd degree polynomial equation
   #fit_fn = lm(predict_prob ~ poly(covar, 3), data = pred_df)
   fit_fn = lm(paste("predict_prob ~ poly(",covar, ", 3)"), data = pred_df)
   coeff = coef(fit_fn)
-  print(fit_fn)
+  #print(fit_fn)
   
-  return(list(df = pred_df, fn = fit_fn))
+  # save coefficients with comid to data table
+  coef_df = as.data.frame(t(coeff))
+  out_df = cbind(comid, coef_df)
+  
+  return(list(df = out_df, fn = fit_fn, comid = comid))
 }
 
+test_df = head(predictors_fluvial, 10000)
+#sens_test_multi = vapply(test_df, reach_sensitivity())
 
-sens_test = reach_sensitivity(50, "NB_nlcd11b_41_43", predictor_species, predictors_fluvial, BR)
-sens_test$coefficients
+sens_test = reach_sensitivity(50, "N_nlcd11_11c", predictor_species, predictors_fluvial, BR)
+#sens_test$fn$coefficients
+
+multi_coef_df = sens_test$df
+
+for(i in 1:nrow(test_df)){
+  out_df = reach_sensitivity(i, "N_nlcd11_11c", predictor_species, predictors_fluvial, BR)$df
+  multi_coef_df = rbind(multi_coef_df, out_df)
+}
+
+head(multi_coef_df)
+
+write.csv(multi_coef_df, "C:/Users/cweinstein/Documents/Projects/AFWA_2026/Sensitivity_analysis/N_nlcd11_11c_coef_table.csv")
+
+
+coef_df = as.data.frame(t(coef(sens_test$fn)))
+coef_df$comid = sens_test$comid
+
+test_coef_df = as.data.frame(sens_test$fn$coefficients)
+test_coef_df$Variable = rownames(test_coef_df)
+test_coef_df <- test_coef_df[, c("Variable", "Estimate", "Std. Error", "t value", "Pr(>|t|)" )]
+rownames(coef_table) <- NULL
+datOut = summary(sens_test$fn)$coef
+datOut = cbind(VariableName=rownames(datOut), datOut)
+datOut
 
 # pick out one stream to test sensitivity analysis on
 idx = 50
 #var = "N_nlcd11_11"
 test_reach = predictor_species[idx,]
 current_cond = test_reach$NB_nlcd11b_41_43
+#current_cond = test_reach$N_nlcd11_11c
 current_cond
 
 # duplicate this stream 10x, varying NB_nlcd11_41_43 by 10% each time
@@ -163,7 +193,7 @@ test_reach$NB_nlcd11b_41_43 = seq(from = 0, to = 100, by = 1)
 test_reach$RunID = sprintf("%d_%06d", test_comid, 1:nrow(test_reach))
 test_reach
 
-test_reach_input = test_reach %>% select(include)
+test_reach_input = test_reach %>% dplyr::select(include)
 
 
 predict_native_region<-predict(BR,test_reach_input,n.trees=BR$gbm.call$best.trees,type="response" )
@@ -196,4 +226,5 @@ ggplot(predict_native_region_prob, aes(x=NB_nlcd11b_41_43, y=predict_prob)) +
   geom_vline(xintercept = current_cond, col="orange")
 
 
-
+# TODO: check whether we have or can get total network buffer area, not just forested
+# TODO: figure out how to get downstream networks using the tool that Patrick used

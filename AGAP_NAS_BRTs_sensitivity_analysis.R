@@ -14,7 +14,6 @@ setwd("K:/GIS/AFWA_BrookTrout/Data/Raw_Data")
 
 # 1. import model
 BR <- readRDS("K:/GIS/AFWA_BrookTrout/Data/Raw_Data/AGAP_BT_BRT.rds")
-#BR_CIC <- readRDS("results/162003.rds")
 
 # check which inputs are important
 summary(BR, plotit=FALSE) # out of the ones that we can easily control, most important is NB_nlcd11_41_43. That's comforting.
@@ -91,24 +90,8 @@ include <- c(
   "N_rx_stlen_den")
 
 # 2. For each stream reach, run model with incremental changes in input variables
-
-
-
-# function that takes in single catchment, runs predictions with fitted model using variables as they are
-# Also changes value of forest buffer variable by user-supplied amount, and re-runs predictions
-# returns both sets of predictions
-# CW: try adapting this for sensitivity analysis
-# predict_catchment <- function(id, value){
-#   input <- filter(predictors_fluvial, comid == id)%>%
-#     # select(i_variables)
-#     select(all_of(include))
-#   print(paste('current value', input$NB_nlcd11_41_43))
-#   preds_b <- predict(BR, input, n.trees=BR$gbm.call$best.trees,type="response")
-#   input$NB_nlcd11_41_43 <- value
-#   print(paste('new value', input$NB_nlcd11_41_43))
-#   preds_a <- predict(BR, input, n.trees=BR$gbm.call$best.trees,type="response")
-#   return(c(preds_b, preds_a))
-# }
+predictors_fluvial = read.csv("K:/GIS/AFWA_BrookTrout/Data/Analysis/Sensitivity_analysis/covars_probabilities_safo_sub.csv")
+predictors_full = read.csv("K:/GIS/AFWA_BrookTrout/Data/Analysis/Sensitivity_analysis/covars_probabilities_safo.csv")
 
 predictor_species  = predictors_fluvial %>% 
   dplyr::select(all_of(include)) #%>%
@@ -138,7 +121,7 @@ reach_sensitivity <- function(idx, covar, predictors, comid_df, model) {
   
   # approximate loess function by fitting a 3rd degree polynomial equation
   #fit_fn = lm(predict_prob ~ poly(covar, 3), data = pred_df)
-  fit_fn = lm(paste("predict_prob ~ poly(",covar, ", 3)"), data = pred_df)
+  fit_fn = lm(paste("predict_prob ~ poly(",covar, ", 3, raw = TRUE)"), data = pred_df)
   coeff = coef(fit_fn)
   #print(fit_fn)
   
@@ -146,29 +129,40 @@ reach_sensitivity <- function(idx, covar, predictors, comid_df, model) {
   coef_df = as.data.frame(t(coeff))
   out_df = cbind(comid, coef_df)
   
-  return(list(df = out_df, fn = fit_fn, comid = comid))
+  return(list(df = out_df, fn = fit_fn))
 }
 
-test_df = head(predictors_fluvial, 10000)
+test_df = head(predictors_fluvial, 1000)
 #sens_test_multi = vapply(test_df, reach_sensitivity())
 
-sens_test = reach_sensitivity(50, "N_nlcd11_11c", predictor_species, predictors_fluvial, BR)
+sens_test = reach_sensitivity(50, "NB_nlcd11b_41_43", predictor_species, predictors_fluvial, BR)
 #sens_test$fn$coefficients
 
 multi_coef_df = sens_test$df
 
 for(i in 1:nrow(test_df)){
-  out_df = reach_sensitivity(i, "N_nlcd11_11c", predictor_species, predictors_fluvial, BR)$df
+  out_df = reach_sensitivity(i, "NB_nlcd11b_41_43", predictor_species, predictors_fluvial, BR)$df
   multi_coef_df = rbind(multi_coef_df, out_df)
 }
 
+# TODO: see if this works
+multi_coef_df = lapply(seq(1:nrow(test_df)), function(idx){
+  reach_sensitivity(idx, "NB_nlcd11b_41_43", predictor_species, predictors_fluvial, BR)$df
+}) %>% bind_rows()
+
 head(multi_coef_df)
 
-write.csv(multi_coef_df, "C:/Users/cweinstein/Documents/Projects/AFWA_2026/Sensitivity_analysis/N_nlcd11_11c_coef_table.csv")
+write.csv(multi_coef_df, "C:/Users/cweinstein/Documents/Projects/AFWA_2026/Sensitivity_analysis/20260922_NB_nlcd11b_41_43_coef_table.csv")
 
+# Plot a 3rd-degree polynomial equation from x = -3 to x = 3
+curve(0.3577236*x^3 - 0.3786601*x^2 + 0.7350791*x + 0.7753714, from = 0, to = 100, 
+      col = "blue", 
+      main = "Third Degree Polynomial", ylab = "y")
 
 coef_df = as.data.frame(t(coef(sens_test$fn)))
 coef_df$comid = sens_test$comid
+
+
 
 test_coef_df = as.data.frame(sens_test$fn$coefficients)
 test_coef_df$Variable = rownames(test_coef_df)
@@ -193,7 +187,7 @@ test_reach$NB_nlcd11b_41_43 = seq(from = 0, to = 100, by = 1)
 test_reach$RunID = sprintf("%d_%06d", test_comid, 1:nrow(test_reach))
 test_reach
 
-test_reach_input = test_reach %>% dplyr::select(include)
+test_reach_input = test_reach %>% dplyr::select(all_of(include))
 
 
 predict_native_region<-predict(BR,test_reach_input,n.trees=BR$gbm.call$best.trees,type="response" )
@@ -208,11 +202,11 @@ head(predict_native_region_prob)
 #write.csv(predict_native_region_prob, sprintf("K:/GIS/AFWA_BrookTrout/Data/Analysis/Sensitivity_analysis/AGAP_model/%d_NB_nlcd11_41_43_SA.csv", test_comid))
 
 # approximate loess function by fitting a 3rd degree polynomial equation
-fit_fn = lm(predict_prob ~ poly(NB_nlcd11b_41_43, 3), data = predict_native_region_prob)
+fit_fn = lm(predict_prob ~ poly(NB_nlcd11b_41_43, 3, raw = TRUE), data = predict_native_region_prob)
 coeff = coef(fit_fn)
 print(fit_fn)
 
-# create a knockoff partial dependence plot (I think that's what I'm doing at least?)
+# create a knockoff partial dependence plot
 #
 ggplot(predict_native_region_prob, aes(x=NB_nlcd11b_41_43, y=predict_prob)) +
   geom_point() +
@@ -228,3 +222,18 @@ ggplot(predict_native_region_prob, aes(x=NB_nlcd11b_41_43, y=predict_prob)) +
 
 # TODO: check whether we have or can get total network buffer area, not just forested
 # TODO: figure out how to get downstream networks using the tool that Patrick used
+
+
+##### test manually plotting function using coefficients
+a = 2.671439e-01
+b = 2.171848e-02
+c = -4.218372e-04
+d = 2.443048e-06
+
+cubic_formula = function(x) {d*x^3 + c*x^2 + b*x + a}
+ggplot(data.frame(x = c(0, 100)), aes(x = x)) +
+  stat_function(fun = cubic_formula, color = "blue", linewidth = 1) +
+  labs(title = "Third Degree Polynomial", y = "y") +
+  theme_minimal()
+
+# ok so this just looks like an exponential function...why???

@@ -146,13 +146,13 @@ for(i in 1:nrow(test_df)){
 }
 
 # TODO: see if this works
-multi_coef_df = lapply(seq(1:nrow(test_df)), function(idx){
+multi_coef_df = lapply(seq(1:nrow(predictors_fluvial)), function(idx){
   reach_sensitivity(idx, "NB_nlcd11b_41_43", predictor_species, predictors_fluvial, BR)$df
 }) %>% bind_rows()
 
 head(multi_coef_df)
 
-write.csv(multi_coef_df, "C:/Users/cweinstein/Documents/Projects/AFWA_2026/Sensitivity_analysis/20260922_NB_nlcd11b_41_43_coef_table.csv")
+write.csv(multi_coef_df, "C:/Users/cweinstein/Documents/Projects/AFWA_2026/Sensitivity_analysis/NB_nlcd11b_41_43_coef_table_full.csv")
 
 # Plot a 3rd-degree polynomial equation from x = -3 to x = 3
 curve(0.3577236*x^3 - 0.3786601*x^2 + 0.7350791*x + 0.7753714, from = 0, to = 100, 
@@ -237,3 +237,33 @@ ggplot(data.frame(x = c(0, 100)), aes(x = x)) +
   theme_minimal()
 
 # ok so this just looks like an exponential function...why???
+
+
+##### SIDE QUEST: checking how many stream reaches have coefficients as well as upstream network buffer area
+NB_csv = "C:/Users/cweinstein/Documents/Projects/AFWA_2026/Sensitivity_analysis/buffers_90m/NB_sqkm_tables/NR_NB_area_test.csv"
+coeff_csv = "C:/Users/cweinstein/Documents/Projects/AFWA_2026/Sensitivity_analysis/NB_nlcd11b_41_43_coef_table_full.csv"
+
+NB_reaches = read.csv(NB_csv)
+coeff_reaches = read.csv(coeff_csv)
+head(NB_reaches)
+head(coeff_reaches)
+
+len(setdiff(NB_reaches$COMID, coeff_reaches$comid))
+
+# do an inner join to retain just reaches that have buffer area as well as coefficients
+# make comid column name the same for both to make the join easier
+NB_reaches <- rename(NB_reaches, comid = COMID)
+
+keep_atts = c("comid", "NB_areasqkm", "upstream_comids", "X.Intercept.", "poly.NB_nlcd11b_41_43..3..raw...TRUE.1", "poly.NB_nlcd11b_41_43..3..raw...TRUE.2", "poly.NB_nlcd11b_41_43..3..raw...TRUE.3")
+
+NB_coeff_reaches = inner_join(NB_reaches, coeff_reaches, by = "comid") %>%
+  select(all_of(keep_atts)) %>%
+  rename(
+    "(Intercept)" = "X.Intercept.",
+    "poly(NB_nlcd11b_41_43, 3, raw = TRUE)1" = "poly.NB_nlcd11b_41_43..3..raw...TRUE.1",
+    "poly(NB_nlcd11b_41_43, 3, raw = TRUE)2" = "poly.NB_nlcd11b_41_43..3..raw...TRUE.2",
+    "poly(NB_nlcd11b_41_43, 3, raw = TRUE)3" = "poly.NB_nlcd11b_41_43..3..raw...TRUE.3"
+  )
+
+head(NB_coeff_reaches)
+write.csv(NB_coeff_reaches, "C:/Users/cweinstein/Documents/Projects/AFWA_2026/Sensitivity_analysis/20260930_coef_networkbuffer_table.csv")

@@ -2,8 +2,10 @@
 
 library(dplyr)
 
-our_predictions = read.csv("K:/GIS/AFWA_BrookTrout/Data/Raw_Data/results/BRT_Salvelinus_fontinalis_brook_trout_native_prediction.csv")
-our_var_contributions = read.csv("K:/GIS/AFWA_BrookTrout/Data/Raw_Data/results/BRT_VarContributions.csv")
+
+
+our_predictions = read.csv("K:/GIS/AFWA_BrookTrout/Data/Analysis/Sensitivity_analysis/model_validation/CIC_validation_prediction.csv")
+#our_var_contributions = read.csv("K:/GIS/AFWA_BrookTrout/Data/Raw_Data/results/BRT_VarContributions.csv")
 
 AGAP_pred = read.csv("C:/Users/cweinstein/Documents/Projects/AFS_workshop/fluvial_fish_brt_predictions_v2_0/fluvial_fish_brt_predictions_v2_0.csv")
 #AGAP_pred_safo = subset(AGAP_pred, scientific_name == "Salvelinus fontinalis")
@@ -13,15 +15,16 @@ AGAP_pred = read.csv("C:/Users/cweinstein/Documents/Projects/AFS_workshop/fluvia
 #write.csv(AGAP_pred_safo, "K:/GIS/AFWA_BrookTrout/Data/Raw_Data/USGS_data/fluvial_fish_brt_predictions_v2_0_SAFO_ONLY.csv")
 AGAP_pred_safo = read.csv("K:/GIS/AFWA_BrookTrout/Data/Raw_Data/USGS_data/fluvial_fish_brt_predictions_v2_0_SAFO_ONLY.csv")
 
+
 # cursory comparison between our outputs & AGAP outputs
-nrow(AGAP_pred_safo)
-nrow(our_predictions)
+nrow(AGAP_pred_safo) # 277105
+nrow(our_predictions) # 277104
 
 # do set difference on comids between two sets of outputs
-length(unique(AGAP_pred_safo$comid)) # 277,105
-length(unique(our_predictions$comid)) # 2,615,694
+length(unique(AGAP_pred_safo$comid))  # 277105
+length(unique(our_predictions$comid)) # 277104
 setdiff(AGAP_pred_safo$comid, our_predictions$comid) # comid 4352486 is in AGAP predictions and not ours
-length(setdiff(our_predictions$comid, AGAP_pred_safo$comid)) # 2,338,590 comids are included in our predictions and not AGAP's
+length(setdiff(our_predictions$comid, AGAP_pred_safo$comid)) # 0 comids are included in our predictions and not AGAP's
 
 # our predictions have wayyyy more rows than subsetted AGAP predictions. That doesn't seem right? Subsetting by itis produced the same number of observations as filtering by species name though
 
@@ -32,7 +35,9 @@ length(setdiff(our_predictions$comid, AGAP_pred_safo$comid)) # 2,338,590 comids 
 # no, that didn't make a difference...what the heck?
 # let's do a quick summary of each to see if that helps...
 summary(AGAP_pred_safo$predict_prob)
-summary(our_predictions$predict_prob)
+summary(our_predictions$predict_prob_CIC)
+
+# some changes in our predicted probability distributions...hopefully not a big deal?
 
 # that didn't really help...there are a lot more tiny probabilities in our outputs though
 # ok whatever let's just do the join and go from there
@@ -42,28 +47,35 @@ summary(our_predictions$predict_prob)
 probs_joined = our_predictions %>%
   full_join(AGAP_pred_safo, by = "comid") %>%
   #inner_join(AGAP_pred_safo, by = "comid") %>%
-  select(comid, predict_prob.x, predict_prob.y) #%>%
+  select(comid, predict_prob_CIC, predict_prob) #%>%
   #dplyr::rename(predict_prob.x = AFWA_predict_prob)
 
 # change column names to something that actually makes sense
-colnames(probs_joined) = c("comid", "AFWA_predict_prob", "AGAP_predict_prob")
+colnames(probs_joined) = c("comid", "predict_prob_CIC", "predict_prob_AGAP")
 
 #probs_joined = merge(x = our_predictions, y = AGAP_pred_safo, by = "comid")
 head(probs_joined)
 
 # calculate RMSE
 library("Metrics")
-rmse(probs_joined$AFWA_predict_prob, probs_joined$AGAP_predict_prob) # 0.09571297...doesn't seem terrible?
+# remove NA - should just remove one row
+probs_joined_clean <- na.omit(probs_joined)
+rmse(probs_joined_clean$predict_prob_CIC, probs_joined_clean$predict_prob_AGAP) # 0.09571297...doesn't seem terrible?
 # after adding dam fragmentation, rmse lowered to 0.08320491...better I guess but not that much better?
 # NOTE: this doesn't work when doing a full join. Only when doing an inner join
+# UPDATE after using Hao's model directly and whatever data cleaning we did, rmse is now 0.06844332. Better than before, but still seems high maybe?
+
+# calculate standard deviation to compare against rmse
+sd(probs_joined_clean$predict_prob_CIC) # 0.2831714
+sd(probs_joined_clean$predict_prob_AGAP) # 0.2903501
 
 # calculate deltas
-probs_joined$delta = probs_joined$AGAP_predict_prob-probs_joined$AFWA_predict_prob
-hist(probs_joined$delta) # normally distributed, with most close to zero...so that seems good?
+probs_joined_clean$delta = probs_joined_clean$predict_prob_AGAP-probs_joined_clean$predict_prob_CIC
+hist(probs_joined_clean$delta) # normally distributed, with most close to zero...so that seems good?
+range(probs_joined_clean$delta)
 
 # save joined tables for further examination in Arc
-#write.csv(probs_joined, "K:/GIS/AFWA_BrookTrout/Data/Analysis/BRT_analysis/full_joined_AGAP_AFWA_outputs.csv")
-
+write.csv(probs_joined_clean, "K:/GIS/AFWA_BrookTrout/Data/Analysis/Sensitivity_analysis/model_validation/joined_validation_predictions.csv")
 
 hist(AGAP_pred_safo$predict_prob)
 hist(our_predictions$predict_prob)

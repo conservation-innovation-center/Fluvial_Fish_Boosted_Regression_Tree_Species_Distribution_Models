@@ -13,6 +13,7 @@ import sys
 import pandas as pd
 import numpy as np
 from pathlib import Path
+from tqdm import tqdm
 arcpy.env.overwriteOutput=True
 arcpy.env.outputCoordinateSystem = r"K:\GIS\AFWA_BrookTrout\Data\SA\All_NR_HUC8.shp"
 arcpy.env.parallelProcessingFactor = "75%"
@@ -133,7 +134,7 @@ if generate_network_buffer_areas:
     # make empty list, to be filled with one dataframe for each comid
     df_list = []
     missing_comid_list = []
-    for comid in comids:
+    for comid in tqdm(comids):
         #print(get_time(), f"Identifying reaches upstream of comid {comid}")
         upstream_comids_csv = rf"K:\GIS\AFWA_BrookTrout\Data\NHD_Tools_CSVs\{comid}.csv"
 
@@ -207,7 +208,9 @@ if generate_network_buffer_areas:
 
     # save mega df as separate csv
     mega_df_path = os.path.join(root_dir, "Sensitivity_analysis", "buffers_90m", "NB_sqkm_tables", f"NR_NB_area.csv")
-    mega_df.to_csv(mega_df_path, ignore_index=True)
+    
+    # NOTE: This line failed because apparently computers hate me. Fix if we ever need to re-run this again. I used NB_table_combo.py instead.
+    mega_df.to_csv(mega_df_path, ignore_index=True) 
 
     # save csv of missing comid values to investigate later
     missing_comid_data = {

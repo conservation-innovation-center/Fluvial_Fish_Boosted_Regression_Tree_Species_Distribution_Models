@@ -15,6 +15,8 @@ setwd("K:/GIS/AFWA_BrookTrout/Data/Raw_Data")
 # 1. import model
 BR <- readRDS("K:/GIS/AFWA_BrookTrout/Data/Raw_Data/AGAP_BT_BRT.rds")
 
+
+###### CAN PROBABLY SKIP THIS STUFF #######
 # check which inputs are important
 summary(BR, plotit=FALSE) # out of the ones that we can easily control, most important is NB_nlcd11_41_43. That's comforting.
 summary(BR_CIC, plotit=FALSE)
@@ -28,34 +30,18 @@ int <- gbm.interactions(BR)
 int$interactions # ...but what counts as a strong interaction?
 int$rank.list
 
-# generate predictor variables
+###### SKIP TO HERE ########
 
-include <- c(
-  "N_areasqkm", # this won't change
-  "N_bfi",
-  "N_precip",
-  "L_temp",
-  "L_fl_slope",
-  "L_maxelev",
-  "NB_nlcd11_41_43", #*
-  "N_nlcd11_11",
-  "N_nlcd11_90_95",
-  "N_nlcd11_21_24", #*
-  "N_nlcd11_81",
-  "N_nlcd11_82",
-  "N_pop11den",
-  "N_allepa_den",
-  "N_allmine_den",
-  "N_total_p_yield",
-  "N_totww",
-  "UDOR", #TODO: look for these.
-  "UNDR",
-  "DMD",
-  "DM2D",
-  "N_rx_stlen_den")
+# 2. For each stream reach, run model with incremental changes in input variables
+
+# read in covariates
+predictors_fluvial = read.csv("K:/GIS/AFWA_BrookTrout/Data/Analysis/Sensitivity_analysis/covars_probabilities_safo_sub.csv") # covariates subset to brook trout & only including columns relevant to our analysis
+#predictors_full = read.csv("K:/GIS/AFWA_BrookTrout/Data/Analysis/Sensitivity_analysis/covars_probabilities_safo.csv") # covariates subset to brook trout & including all columns. Ignore for now.
+
 #Set a seed number so that the process can be repeatable
 set.seed(10)
 
+# generate predictor variables - SKIP THIS IF USING COVARS_PROBABILITIES_SAFO_SUB.CSV
 predictors_fluvial <- mutate(predictors_fluvial,
                              NB_nlcd11b_41_43 = NB_nlcd11b_41+ NB_nlcd11b_42+ NB_nlcd11b_43,
                              N_nlcd11_90_95 = N_nlcd11_90+N_nlcd11_95, #CW: changed this so it's using N_ instead of NB_ columns
@@ -88,10 +74,6 @@ include <- c(
   "DMD",
   "DM2D_Fishtail",
   "N_rx_stlen_den")
-
-# 2. For each stream reach, run model with incremental changes in input variables
-predictors_fluvial = read.csv("K:/GIS/AFWA_BrookTrout/Data/Analysis/Sensitivity_analysis/covars_probabilities_safo_sub.csv")
-predictors_full = read.csv("K:/GIS/AFWA_BrookTrout/Data/Analysis/Sensitivity_analysis/covars_probabilities_safo.csv")
 
 predictor_species  = predictors_fluvial %>% 
   dplyr::select(all_of(include)) #%>%
@@ -135,24 +117,24 @@ reach_sensitivity <- function(idx, covar, predictors, comid_df, model) {
 test_df = head(predictors_fluvial, 1000)
 #sens_test_multi = vapply(test_df, reach_sensitivity())
 
-sens_test = reach_sensitivity(50, "NB_nlcd11b_41_43", predictor_species, predictors_fluvial, BR)
+sens_test = reach_sensitivity(50, "N_nlcd11_81", predictor_species, predictors_fluvial, BR)
 #sens_test$fn$coefficients
 
 multi_coef_df = sens_test$df
 
 for(i in 1:nrow(test_df)){
-  out_df = reach_sensitivity(i, "NB_nlcd11b_41_43", predictor_species, predictors_fluvial, BR)$df
+  out_df = reach_sensitivity(i, "N_nlcd11_81", predictor_species, predictors_fluvial, BR)$df
   multi_coef_df = rbind(multi_coef_df, out_df)
 }
 
 # TODO: see if this works
 multi_coef_df = lapply(seq(1:nrow(predictors_fluvial)), function(idx){
-  reach_sensitivity(idx, "NB_nlcd11b_41_43", predictor_species, predictors_fluvial, BR)$df
+  reach_sensitivity(idx, "N_nlcd11_81", predictor_species, predictors_fluvial, BR)$df
 }) %>% bind_rows()
 
 head(multi_coef_df)
 
-write.csv(multi_coef_df, "C:/Users/cweinstein/Documents/Projects/AFWA_2026/Sensitivity_analysis/NB_nlcd11b_41_43_coef_table_full.csv")
+write.csv(multi_coef_df, "C:/Users/cweinstein/Documents/Projects/AFWA_2026/Sensitivity_analysis/N_nlcd11_81_coef_table_full.csv")
 
 # Plot a 3rd-degree polynomial equation from x = -3 to x = 3
 curve(0.3577236*x^3 - 0.3786601*x^2 + 0.7350791*x + 0.7753714, from = 0, to = 100, 
@@ -172,29 +154,91 @@ datOut = summary(sens_test$fn)$coef
 datOut = cbind(VariableName=rownames(datOut), datOut)
 datOut
 
+
+plot_reach <- function(comid, covar, predictors, comid_df, model) {
+  # find stream and current conditions
+  #idx = match(comid, comid_df$comid)
+  idx = comid
+  test_reach_full = comid_df[idx,]
+  test_reach = predictors[idx,]
+  current_cond = test_reach[[covar]]
+  current_prob = test_reach_full$predict_prob
+  
+  # duplicate this stream 100x, varying covar by 1% each time
+  test_reach = predictors[rep(idx,101),]
+  test_comid = comid_df$comid[idx] # wait what is this line and why do we need it??
+  test_reach[[covar]] = seq(from = 0, to = 100, by = 1)
+  test_reach$RunID = sprintf("%d_%06d", test_comid, 1:nrow(test_reach))
+  
+  #return(test_reach)
+  
+  # run predictions
+  predict_native_region<-predict(BR,test_reach,n.trees=BR$gbm.call$best.trees,type="response")
+  predict_native_region_prob <- as.data.frame(cbind(test_reach[c("RunID",covar)],predict_native_region))
+  names(predict_native_region_prob)
+  names(predict_native_region_prob)[3]<-c("predict_prob")
+
+  #return(predict_native_region_prob)
+  
+  # create plot # TODO - WHY WON'T THIS PLOT WORK INSIDE A FUNCTION?
+  
+  ggplot(predict_native_region_prob, aes(x=.data[[covar]], y=predict_prob)) +
+    geom_point() +
+    labs(
+      title = sprintf("Stream %d", test_comid),
+      x = covar,
+      y = "Probability of brook trout occurrence"
+    ) +
+    # geom_smooth(method="lm", formula = y~poly(x,3), col="red") +
+    # geom_smooth(method="lm", formula = y~poly(x,6), col="orange") +
+    # geom_smooth(method="lm", formula = y~poly(x,9), col="yellow") +
+    # geom_smooth(method="lm", formula = y~poly(x,12), col="green") +
+    # geom_smooth(method="lm", formula = y~poly(x,15), col="blue") +
+    # geom_smooth(method="lm", formula = y~poly(x,18), col="purple") +
+    geom_smooth(method="loess", col="purple")  +
+    #geom_vline(xintercept = current_cond, col="orange", linewidth = 1) +
+    #geom_hline(yintercept = current_prob, col="orange") +
+    annotate("point", x = current_cond, y = current_prob, color = "orange", size = 3)+
+    ylim(0,1)
+  
+}
+
+sens_function = plot_reach(25000, "N_nlcd11_81", predictor_species, predictors_fluvial, BR)
+sens_function
+
+ggplot(sens_function, aes(x = NB_nlcd11b_41_43, y = predict_prob)) +
+  geom_point()
+
 # pick out one stream to test sensitivity analysis on
-idx = 50
+idx = match(931, predictors_fluvial$comid)
 #var = "N_nlcd11_11"
+test_reach_full = predictors_fluvial[idx,]
 test_reach = predictor_species[idx,]
 current_cond = test_reach$NB_nlcd11b_41_43
+#current_cond = test_reach$N_nlcd11_81 # PROBLEM - AGAP paper says N_nlcd81 is cropland, but NLCD class 81 is pasture/hay. 82 is cropland. What do?
 #current_cond = test_reach$N_nlcd11_11c
 current_cond
+current_prob = test_reach_full$predict_prob
+current_prob
 
 # duplicate this stream 10x, varying NB_nlcd11_41_43 by 10% each time
 test_reach = predictor_species[rep(idx,101),]
 test_comid = predictors_fluvial$comid[idx]
 test_reach$NB_nlcd11b_41_43 = seq(from = 0, to = 100, by = 1)
+#test_reach$N_nlcd11_81 = seq(from = 0, to = 100, by = 1)
 test_reach$RunID = sprintf("%d_%06d", test_comid, 1:nrow(test_reach))
 test_reach
 
-test_reach_input = test_reach %>% dplyr::select(all_of(include))
+#test_reach_input = test_reach %>% dplyr::select(all_of(include))
 
 
-predict_native_region<-predict(BR,test_reach_input,n.trees=BR$gbm.call$best.trees,type="response" )
+predict_native_region<-predict(BR,test_reach,n.trees=BR$gbm.call$best.trees,type="response" )
 #CW: compare outputs of this line to AGAP's outputs. They should match.
 
 #predict_native_region_prob<-as.data.frame(cbind(predictors_fluvial["comid"],predict_native_region))
 predict_native_region_prob <- as.data.frame(cbind(test_reach[c("RunID","NB_nlcd11b_41_43")],predict_native_region))
+#predict_native_region_prob <- as.data.frame(cbind(test_reach[c("RunID","N_nlcd11_81")],predict_native_region))
+names(predict_native_region_prob)
 names(predict_native_region_prob)[3]<-c("predict_prob")
 head(predict_native_region_prob)
 
@@ -212,12 +256,20 @@ ggplot(predict_native_region_prob, aes(x=NB_nlcd11b_41_43, y=predict_prob)) +
   geom_point() +
   labs(
     title = sprintf("Stream %d", test_comid),
-    x = "Network buffer forest land cover (%)",
+    x = "Network forest buffer (%)",
     y = "Probability of brook trout occurrence"
   ) +
-  geom_smooth(method="lm", formula = y~poly(x,3), col="blue") +
+  #geom_smooth(method="lm", formula = y~poly(x,3), col="red") +
+  #geom_smooth(method="lm", formula = y~poly(x,6), col="orange") +
+  #geom_smooth(method="lm", formula = y~poly(x,9), col="yellow") +
+  #geom_smooth(method="lm", formula = y~poly(x,12), col="green") +
+  #geom_smooth(method="lm", formula = y~poly(x,15), col="blue") +
+  #geom_smooth(method="lm", formula = y~poly(x,18), col="purple") +
   geom_smooth(method="loess", col="purple") + 
-  geom_vline(xintercept = current_cond, col="orange")
+  geom_vline(xintercept = current_cond, col="orange", linewidth = 1) +
+  geom_hline(yintercept = current_prob, col="orange") +
+  #annotate("point", x = current_cond, y = current_prob, color = "orange", size = 3)+
+  ylim(0,1)
 
 
 # TODO: check whether we have or can get total network buffer area, not just forested

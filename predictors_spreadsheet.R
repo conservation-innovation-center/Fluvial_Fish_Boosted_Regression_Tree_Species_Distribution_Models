@@ -1,10 +1,13 @@
+library(arrow)
+library(dplyr)
+
 # making mega-spreadsheet with predictor variables & current predicted percentages
 
 agap_pred_safo = read.csv("K:/GIS/AFWA_BrookTrout/Data/Raw_Data/USGS_data/fluvial_fish_brt_predictions_v2_0_SAFO_ONLY.csv")
 
 predictors_landscape<-read_parquet("K:/GIS/AFWA_BrookTrout/Data/Raw_Data/nhdplusv2_agap_landscape_characterstics.parquet.gzip")
 
-dam_metrics <- read_csv_arrow("Dam_metrics/dam_fragmentation_metrics_nhdplusv21.csv")
+dam_metrics <- read_csv_arrow("C:/Users/cweinstein/Documents/Projects/AFWA_2026/AGAP_downloads_Jul2026/Dam_metrics/dam_fragmentation_metrics_nhdplusv21.csv")
 
 predictors_fluvial <- predictors_landscape %>%
   merge(dam_metrics, by.x = "comid", by.y = "COMID")

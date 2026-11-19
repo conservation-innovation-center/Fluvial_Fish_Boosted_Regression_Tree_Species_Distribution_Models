@@ -250,7 +250,7 @@ if summarize_network_forest_buffer:
 
     # use rasterized 90m buffers as a mask on NLCD
     
-    if not os.path.exists(NLCD_90mBuff):
+    if not arcpy.Exists(NLCD_90mBuff):
         print(get_time(), "clipping NLCD raster to 90m buffers")
 
         # TODO: try rasterizing buffer polygons & using extract by mask instead of clip raster
